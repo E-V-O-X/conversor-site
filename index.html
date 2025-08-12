@@ -95,7 +95,7 @@ function isLetter(ch){ return new RegExp(`[${LATIN_UPPER}${LATIN_LOWER}]`).test(
 function normalizeList(str){ return (str||"").split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean); }
 function toTitle(word){
   if(!word) return word;
-  return word.split(/([\\-'’])/).map(seg=>{
+  return word.split(/(-|'|’)/).map(seg=>{
     if(seg==="-"||seg==="'"||seg==="’") return seg;
     if(!seg) return seg;
     const first = seg[0]||"";
@@ -245,7 +245,7 @@ $("detectBtn").onclick = async ()=>{
   }
 };
 
-// valor sugerido pro seu backend:
+// valor backend:
 $("apiBase").value = "https://ner-pt-backend-production.up.railway.app";
 render();
 </script>
