@@ -6,36 +6,32 @@
   <title>Conversor de Caixa (PT-BR)</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial; background:#111; color:#eee; margin:0; padding:24px;}
-    .wrap{max-width:1000px; margin:0 auto; display:grid; gap:16px;}
+    .wrap{max-width:900px; margin:0 auto; display:grid; gap:16px;}
     h1{font-size:22px; margin:0 0 8px}
     .grid{display:grid; gap:12px}
     @media (min-width:900px){ .cols{grid-template-columns:1fr 1fr}}
-    textarea, input{width:100%; background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:10px; padding:10px; box-sizing:border-box}
+    textarea{width:100%; background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:10px; padding:10px; box-sizing:border-box}
     button{background:#3b82f6; color:#fff; border:none; padding:10px 14px; border-radius:10px; cursor:pointer}
     button.secondary{background:#262626}
     .row{display:flex; gap:8px; flex-wrap:wrap}
     small{color:#aaa}
     label{font-size:12px; color:#bbb}
     .card{background:#0f0f0f; border:1px solid #222; border-radius:14px; padding:16px}
-    .hint{font-size:12px; color:#9ca3af}
-    .pill{padding:6px 10px; border-radius:999px; background:#262626; font-size:12px}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div>
       <h1>Conversor de Caixa (PT-BR)</h1>
-      <div class="hint">Respeita pontuação, mantém siglas e permite nomes próprios (automático via NER).</div>
+      <small>Modos: MAIÚSCULAS, minúsculas, Primeira letra maiúscula (respeita pontuação).</small>
     </div>
 
     <div class="card grid cols">
       <div class="grid">
         <label>Texto de entrada</label>
-        <textarea id="input" rows="10">Exemplo: a NASA e a UFRJ anunciaram algo em 12 de junho. a maria d'avila disse: vamos ao rio de janeiro?
+        <textarea id="input" rows="10">EXEMPLO: A NASA E A UFRJ ANUNCIARAM ALGO EM 12 DE JUNHO. A MARIA DISSE: VAMOS AO RIO DE JANEIRO?
 
-obs.: sr. joão mora na av. paulista, 100. etc. e tal...
-
-SIGLAS: OMS, FIFA; nomes próprios: Brasil, João-Pedro, D'Ávila.</textarea>
+obs.: SR. JOÃO MORA NA AV. PAULISTA, 100. ETC. E TAL...</textarea>
       </div>
       <div class="grid">
         <label>Resultado</label>
@@ -43,211 +39,106 @@ SIGLAS: OMS, FIFA; nomes próprios: Brasil, João-Pedro, D'Ávila.</textarea>
       </div>
     </div>
 
-    <div class="card grid cols">
-      <div class="grid">
-        <label>Siglas (separe por vírgula/linha)</label>
-        <textarea id="acronyms" rows="4">NASA, UFRJ, OMS, FIFA, SUS, IBGE</textarea>
-        <div class="row">
-          <span class="pill"><input type="checkbox" id="capAfterColon" checked> capitalizar após “:”</span>
-        </div>
-      </div>
-      <div class="grid">
-        <label>Nomes próprios (lista)</label>
-        <textarea id="proper" rows="4">Brasil, João, João-Pedro, D'Ávila, Maria, Rio de Janeiro</textarea>
-        <div class="grid" id="titleSmallWrap" style="display:none">
-          <label>Palavras pequenas (não capitalizar no meio)</label>
-          <textarea id="small" rows="3">de, da, do, das, dos, e, a, o, as, os, em, por, para, com, sem, sob, sobre, entre, até, ou</textarea>
-        </div>
-      </div>
-    </div>
-
-    <div class="card grid">
-      <label>URL do backend NER (FastAPI)</label>
-      <input id="apiBase" placeholder="https://ner-pt-backend-production.up.railway.app" />
-      <div class="row">
-        <button id="detectBtn">Detectar nomes</button>
-        <div id="hint" class="hint"></div>
-      </div>
-    </div>
-
     <div class="card grid">
       <label>Modo</label>
       <div class="row">
-        <button class="mode" data-mode="sentence">Frase (pt-BR)</button>
+        <button class="mode" data-mode="sentence">Primeira letra maiúscula</button>
         <button class="mode secondary" data-mode="upper">MAIÚSCULAS</button>
         <button class="mode secondary" data-mode="lower">minúsculas</button>
-        <button class="mode secondary" data-mode="title">Título</button>
-        <button class="mode secondary" data-mode="toggle">Alternar</button>
+        <button id="convertNow" class="secondary">Converter</button>
         <button id="copy" class="secondary">Copiar</button>
         <button id="clear" class="secondary">Limpar</button>
       </div>
-      <small>Dica: adicione siglas e nomes próprios nas listas para melhorar a precisão.</small>
     </div>
   </div>
 
 <script>
 const LATIN_UPPER = "A-ZÀ-ÖØ-Þ";
 const LATIN_LOWER = "a-zà-öø-ÿ";
-const ACRONYM_RE = new RegExp(`^[${LATIN_UPPER}]{2,}(?:[&\\/.\\-][${LATIN_UPPER}]{2,})*$`);
-const $ = (id)=>document.getElementById(id);
-
 function isLetter(ch){ return new RegExp(`[${LATIN_UPPER}${LATIN_LOWER}]`).test(ch); }
-function normalizeList(str){ return (str||"").split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean); }
-function toTitle(word){
-  if(!word) return word;
-  return word.split(/(-|'|’)/).map(seg=>{
-    if(seg==="-"||seg==="'"||seg==="’") return seg;
-    if(!seg) return seg;
-    const first = seg[0]||"";
-    return first.toLocaleUpperCase("pt-BR")+seg.slice(1).toLocaleLowerCase("pt-BR");
-  }).join("");
-}
 
 const DEFAULT_ABBR = ["sr.","sra.","srta.","dr.","dra.","prof.","profa.","etc.","p.ex.","ex.","aprox.","ilmo.","srs.","av.","r.","rod.","nº.","vs."];
 
-function splitIntoSentences(text, extraAbbr){
-  const abbrSet = new Set([...DEFAULT_ABBR, ...extraAbbr.map(a=>a.toLocaleLowerCase("pt-BR"))]);
+function splitIntoSentences(text){
+  const abbrSet = new Set(DEFAULT_ABBR);
   const out=[]; let buf="";
   const flush=()=>{ if(buf.length){ out.push(buf); buf=""; } };
   for(let i=0;i<text.length;i++){
     const ch=text[i]; buf+=ch;
-    if(ch==="\\n"){ if(text[i+1]==="\\n"){ flush(); } continue; }
-    if(/[\\.\\!?…]/.test(ch)){
+    if(ch==="\n"){ if(text[i+1]==="\n"){ flush(); } continue; }
+    if(/[\.!?…]/.test(ch)){
       let j=buf.length-2, word="";
-      while(j>=0 && /[\\p{L}\\.]/u.test(buf[j])){ word = buf[j]+word; j--; }
+      while(j>=0 && /[\p{L}\.]/u.test(buf[j])){ word = buf[j]+word; j--; }
       if(abbrSet.has(word.toLocaleLowerCase("pt-BR"))) continue;
       let k=i+1;
-      while(/["'”’)\\]\\s]/.test(text[k])){ buf+=text[k]; i=k; k++; }
+      while(/["'”’)\]\s]/.test(text[k])){ buf+=text[k]; i=k; k++; }
       flush();
     }
   }
   flush(); return out;
 }
 
-function sentenceCasePT(text,{acronyms=[],properNames=[],capitalizeAfterColon=true}){
-  const acrSet = new Set(acronyms.map(a=>a.toLocaleUpperCase("pt-BR")));
-  const properSet = new Set(properNames.map(n=>n.toLocaleLowerCase("pt-BR")));
-  const sentences = splitIntoSentences(text, []);
-  const processed = sentences.map(sentenceRaw=>{
-    const tokens = sentenceRaw.match(/\\S+|\\s+/g) || [];
+function sentenceCasePT(text){
+  const sentences = splitIntoSentences(text);
+  const processed = sentences.map((sentenceRaw)=>{
+    const tokens = sentenceRaw.match(/\S+|\s+/g) || [];
     const lowered = tokens.map(tok=>{
-      if(/^\\s+$/.test(tok)) return tok;
-      const bare = tok.replace(/^[\\"'“”‘’(\\[\\{]+|[\\"'“”‘’)\\]\\}.:,;!?]+$/g,"");
-      if(ACRONYM_RE.test(bare) || acrSet.has(bare.toLocaleUpperCase("pt-BR"))) return tok.toLocaleUpperCase("pt-BR");
+      if(/^\s+$/.test(tok)) return tok;
       return tok.toLocaleLowerCase("pt-BR");
     });
-    for(let i=0;i<lowered.length;i++){
-      const t=lowered[i]; if(/^\\s+$/.test(t)) continue;
+    // primeira letra da sentença
+    for (let i=0;i<lowered.length;i++){
+      const t=lowered[i]; if(/^\s+$/.test(t)) continue;
       const idx=[...t].findIndex(c=>isLetter(c));
       if(idx!==-1){ const chars=[...t]; chars[idx]=chars[idx].toLocaleUpperCase("pt-BR"); lowered[i]=chars.join(""); break; }
     }
-    if(capitalizeAfterColon){
-      for(let i=0;i<lowered.length;i++){
-        if(lowered[i].includes(":")){
-          for(let j=i+1;j<lowered.length;j++){
-            if(/^\\s+$/.test(lowered[j])) continue;
-            const chars=[...lowered[j]]; const pos=chars.findIndex(c=>isLetter(c));
-            if(pos!==-1){ chars[pos]=chars[pos].toLocaleUpperCase("pt-BR"); lowered[j]=chars.join(""); }
-            break;
-          }
+    // capitalizar após dois pontos
+    for (let i=0;i<lowered.length;i++){
+      if(lowered[i].includes(":")){
+        for (let j=i+1;j<lowered.length;j++){
+          if(/^\s+$/.test(lowered[j])) continue;
+          const chars=[...lowered[j]]; const pos=chars.findIndex(c=>isLetter(c));
+          if(pos!==-1){ chars[pos]=chars[pos].toLocaleUpperCase("pt-BR"); lowered[j]=chars.join(""); }
+          break;
         }
       }
     }
-    const withProper = lowered.map(tok=>{
-      if(/^\\s+$/.test(tok)) return tok;
-      const bare = tok.replace(/^[\\"'“”‘’(\\[\\{]+|[\\"'“”‘’)\\]\\}.:,;!?]+$/g,"");
-      if(!bare) return tok;
-      if(properSet.has(bare.toLocaleLowerCase("pt-BR"))){
-        const titled = toTitle(bare); return tok.replace(bare,titled);
-      }
-      return tok;
-    });
-    return withProper.join("");
+    return lowered.join("");
   });
   return processed.join("");
 }
 
-function titleCasePT(text,{smallWords=[]}){
-  const small = new Set(smallWords.map(w=>w.toLocaleLowerCase("pt-BR")));
-  const parts = text.split(/(\\s+)/);
-  return parts.map((tok,idx,arr)=>{
-    if(/^\\s+$/.test(tok)) return tok;
-    const bare = tok.replace(/^[\\"'“”‘’(\\[\\{]+|[\\"'“”‘’)\\]\\}.:,;!?]+$/g,"");
-    if(!bare) return tok;
-    if(ACRONYM_RE.test(bare)) return tok.toLocaleUpperCase("pt-BR");
-    const lower = bare.toLocaleLowerCase("pt-BR");
-    const isStart = idx===0 || (/^\\s+$/.test(arr[idx-1]) && /[\\.!?…]$/.test(arr[idx-2]||""));
-    if(!isStart && small.has(lower)) return tok.replace(bare,lower);
-    return tok.replace(bare,toTitle(bare));
-  }).join("");
-}
-
 function render(){
   const mode = document.querySelector(".mode:not(.secondary)")?.dataset.mode || "sentence";
-  const input = $("input").value;
-  const acr = normalizeList($("acronyms").value).map(s=>s.toLocaleUpperCase("pt-BR"));
-  const prop = normalizeList($("proper").value);
-  const small = normalizeList($("small").value);
-  const capAfterColon = $("capAfterColon").checked;
-
-  let out = "";
+  const input = document.getElementById("input").value;
+  let out="";
   switch(mode){
     case "upper": out = input.toLocaleUpperCase("pt-BR"); break;
     case "lower": out = input.toLocaleLowerCase("pt-BR"); break;
-    case "title": out = titleCasePT(input,{smallWords:small}); break;
-    case "toggle": out = [...input].map(c=>c===c.toLocaleUpperCase("pt-BR")?c.toLocaleLowerCase("pt-BR"):c.toLocaleUpperCase("pt-BR")).join(""); break;
     case "sentence":
-    default: out = sentenceCasePT(input,{acronyms:acr,properNames:prop,capitalizeAfterColon:capAfterColon});
+    default: out = sentenceCasePT(input);
   }
-  $("output").value = out;
+  document.getElementById("output").value = out;
 }
 
+// UI
 document.querySelectorAll(".mode").forEach(btn=>{
   btn.addEventListener("click", ()=>{
     document.querySelectorAll(".mode").forEach(b=>b.classList.add("secondary"));
     btn.classList.remove("secondary");
-    $("titleSmallWrap").style.display = btn.dataset.mode==="title"?"block":"none";
     render();
   });
 });
-$("copy").onclick = ()=>{ navigator.clipboard.writeText($("output").value); };
-$("clear").onclick = ()=>{ $("input").value=""; render(); };
-$("input").addEventListener("input", render);
-$("acronyms").addEventListener("input", render);
-$("proper").addEventListener("input", render);
-$("small").addEventListener("input", render);
-$("capAfterColon").addEventListener("change", render);
-document.querySelector(".mode[data-mode='sentence']").click(); // modo padrão
-
-$("detectBtn").onclick = async ()=>{
-  const api = $("apiBase").value.trim().replace(/\/$/,"");
-  if(!api){ $("hint").textContent = "Informe a URL do backend NER."; return; }
-  $("hint").textContent = "Detectando...";
-  try{
-    const res = await fetch(api + "/ner", {
-      method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ text: $("input").value })
-    });
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const data = await res.json();
-    const itens = Array.isArray(data?.proper_names)?data.proper_names:[];
-    if(itens.length){
-      const atual = new Set(normalizeList($("proper").value).map(x=>x.toLocaleLowerCase("pt-BR")));
-      const merged = [...normalizeList($("proper").value), ...itens.filter(x=>!atual.has(x.toLocaleLowerCase("pt-BR")))];
-      $("proper").value = merged.join(", ");
-      $("hint").textContent = `${itens.length} nomes detectados.`;
-      render();
-    }else{
-      $("hint").textContent = "Nenhum nome detectado.";
-    }
-  }catch(e){
-    $("hint").textContent = "Falha: " + e.message;
-  }
-};
-
-// valor backend:
-$("apiBase").value = "https://ner-pt-backend-production.up.railway.app";
-render();
+document.getElementById("convertNow").onclick = render;
+document.getElementById("copy").onclick = ()=>{ navigator.clipboard.writeText(document.getElementById("output").value); };
+document.getElementById("clear").onclick = ()=>{ document.getElementById("input").value=""; render(); };
+document.getElementById("input").addEventListener("input", render);
+// Ativa modo padrão ao carregar
+window.addEventListener("DOMContentLoaded", ()=>{
+  const btn = document.querySelector(".mode[data-mode='sentence']");
+  if (btn) { btn.classList.remove("secondary"); }
+  render();
+});
 </script>
 </body>
 </html>
